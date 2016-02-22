@@ -6,7 +6,7 @@ import jieba
 
 def cuttest(test_sent):
     result = jieba.cut(test_sent)
-    print " / ".join(result)
+    print(" / ".join(result))
 
 
 if __name__ == "__main__":
@@ -95,3 +95,6 @@ if __name__ == "__main__":
     cuttest('C++和c#是什么关系？11+122=133，是吗？PI=3.14159')
     cuttest('你认识那个和主席握手的的哥吗？他开一辆黑色的士。')
     cuttest('枪杆子中出政权')
+    cuttest('张三风同学走上了不归路')
+    cuttest('阿Q腰间挂着BB机手里拿着大哥大，说：我一般吃饭不AA制的。')
+    cuttest('在1号店能买到小S和大S八卦的书，还有3D电视。')
