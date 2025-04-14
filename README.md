@@ -9,23 +9,14 @@ jieba
 
 特点
 ========
-* 支持三种分词模式：
+* 支持四种分词模式：
     * 精确模式，试图将句子最精确地切开，适合文本分析；
     * 全模式，把句子中所有的可以成词的词语都扫描出来, 速度非常快，但是不能解决歧义；
     * 搜索引擎模式，在精确模式的基础上，对长词再次切分，提高召回率，适合用于搜索引擎分词。
-
+    * paddle模式，利用PaddlePaddle深度学习框架，训练序列标注（双向GRU）网络模型实现分词。同时支持词性标注。paddle模式使用需安装paddlepaddle-tiny，`pip install paddlepaddle-tiny==1.6.1`。目前paddle模式支持jieba v0.40及以上版本。jieba v0.40以下版本，请升级jieba，`pip install jieba --upgrade` 。[PaddlePaddle官网](https://www.paddlepaddle.org.cn/)
 * 支持繁体分词
 * 支持自定义词典
 * MIT 授权协议
-
-在线演示
-=========
-http://jiebademo.ap01.aws.af.cm/
-
-(Powered by Appfog)
-
-网站代码：https://github.com/fxsjy/jiebademo
-
 
 安装说明
 =======
@@ -36,6 +27,7 @@ http://jiebademo.ap01.aws.af.cm/
 * 半自动安装：先下载 http://pypi.python.org/pypi/jieba/ ，解压后运行 `python setup.py install`
 * 手动安装：将 jieba 目录放置于当前目录或者 site-packages 目录
 * 通过 `import jieba` 来引用
+* 如果需要使用paddle模式下的分词和词性标注功能，请先安装paddlepaddle-tiny，`pip install paddlepaddle-tiny==1.6.1`。
 
 算法
 ========
@@ -47,7 +39,7 @@ http://jiebademo.ap01.aws.af.cm/
 =======
 1. 分词
 --------
-* `jieba.cut` 方法接受三个输入参数: 需要分词的字符串；cut_all 参数用来控制是否采用全模式；HMM 参数用来控制是否使用 HMM 模型
+* `jieba.cut` 方法接受四个输入参数: 需要分词的字符串；cut_all 参数用来控制是否采用全模式；HMM 参数用来控制是否使用 HMM 模型；use_paddle 参数用来控制是否使用paddle模式下的分词模式，paddle模式采用延迟加载方式，通过enable_paddle接口安装paddlepaddle-tiny，并且import相关代码；
 * `jieba.cut_for_search` 方法接受两个参数：需要分词的字符串；是否使用 HMM 模型。该方法适合用于搜索引擎构建倒排索引的分词，粒度比较细
 * 待分词的字符串可以是 unicode 或 UTF-8 字符串、GBK 字符串。注意：不建议直接输入 GBK 字符串，可能无法预料地错误解码成 UTF-8
 * `jieba.cut` 以及 `jieba.cut_for_search` 返回的结构都是一个可迭代的 generator，可以使用 for 循环来获得分词后得到的每一个词语(unicode)，或者用
@@ -59,6 +51,12 @@ http://jiebademo.ap01.aws.af.cm/
 ```python
 # encoding=utf-8
 import jieba
+
+jieba.enable_paddle()# 启动paddle模式。 0.40版之后开始支持，早期版本不支持
+strs=["我来到北京清华大学","乒乓球拍卖完了","中国科学技术大学"]
+for str in strs:
+    seg_list = jieba.cut(str,use_paddle=True) # 使用paddle模式
+    print("Paddle Mode: " + '/'.join(list(seg_list)))
 
 seg_list = jieba.cut("我来到北京清华大学", cut_all=True)
 print("Full Mode: " + "/ ".join(seg_list))  # 全模式
@@ -195,11 +193,15 @@ https://github.com/fxsjy/jieba/blob/master/test/extract_tags.py
 -----------
 * `jieba.posseg.POSTokenizer(tokenizer=None)` 新建自定义分词器，`tokenizer` 参数可指定内部使用的 `jieba.Tokenizer` 分词器。`jieba.posseg.dt` 为默认词性标注分词器。
 * 标注句子分词后每个词的词性，采用和 ictclas 兼容的标记法。
+* 除了jieba默认分词模式，提供paddle模式下的词性标注功能。paddle模式采用延迟加载方式，通过enable_paddle()安装paddlepaddle-tiny，并且import相关代码；
 * 用法示例
 
 ```pycon
+>>> import jieba
 >>> import jieba.posseg as pseg
->>> words = pseg.cut("我爱北京天安门")
+>>> words = pseg.cut("我爱北京天安门") #jieba默认模式
+>>> jieba.enable_paddle() #启动paddle模式。 0.40版之后开始支持，早期版本不支持
+>>> words = pseg.cut("我爱北京天安门",use_paddle=True) #paddle模式
 >>> for word, flag in words:
 ...    print('%s %s' % (word, flag))
 ...
@@ -208,6 +210,21 @@ https://github.com/fxsjy/jieba/blob/master/test/extract_tags.py
 北京 ns
 天安门 ns
 ```
+
+paddle模式词性标注对应表如下：
+
+paddle模式词性和专名类别标签集合如下表，其中词性标签 24 个（小写字母），专名类别标签 4 个（大写字母）。
+
+| 标签 | 含义     | 标签 | 含义     | 标签 | 含义     | 标签 | 含义     |
+| ---- | -------- | ---- | -------- | ---- | -------- | ---- | -------- |
+| n    | 普通名词 | f    | 方位名词 | s    | 处所名词 | t    | 时间     |
+| nr   | 人名     | ns   | 地名     | nt   | 机构名   | nw   | 作品名   |
+| nz   | 其他专名 | v    | 普通动词 | vd   | 动副词   | vn   | 名动词   |
+| a    | 形容词   | ad   | 副形词   | an   | 名形词   | d    | 副词     |
+| m    | 数量词   | q    | 量词     | r    | 代词     | p    | 介词     |
+| c    | 连词     | u    | 助词     | xc   | 其他虚词 | w    | 标点符号 |
+| PER  | 人名     | LOC  | 地名     | ORG  | 机构名   | TIME | 时间     |
+
 
 5. 并行分词
 -----------
@@ -362,6 +379,11 @@ https://github.com/fxsjy/jieba/raw/master/extra_dict/dict.txt.big
 作者：yanyiwu
 地址：https://github.com/yanyiwu/cppjieba
 
+结巴分词 Rust 版本
+----------------
+作者：messense, MnO2
+地址：https://github.com/messense/jieba-rs
+
 结巴分词 Node.js 版本
 ----------------
 作者：yanyiwu
@@ -391,6 +413,23 @@ https://github.com/fxsjy/jieba/raw/master/extra_dict/dict.txt.big
 ----------------
 作者：anderscui
 地址：https://github.com/anderscui/jieba.NET/
+
+结巴分词 Go 版本
+----------------
+
++ 作者: wangbin 地址: https://github.com/wangbin/jiebago
++ 作者: yanyiwu 地址: https://github.com/yanyiwu/gojieba
+
+结巴分词Android版本
+------------------
++ 作者   Dongliang.W  地址：https://github.com/452896915/jieba-android
+
+
+友情链接
+=========
+* https://github.com/baidu/lac   百度中文词法分析（分词+词性+专名）系统
+* https://github.com/baidu/AnyQ  百度FAQ自动问答系统
+* https://github.com/baidu/Senta 百度情感识别系统
 
 系统集成
 ========
@@ -522,7 +561,7 @@ Output:
 2. Add a custom dictionary
 ----------------------------
 
-###　Load dictionary
+### Load dictionary
 
 * Developers can specify their own custom dictionary to be included in the jieba default dictionary. Jieba is able to identify new words, but you can add your own new words can ensure a higher accuracy.
 * Usage： `jieba.load_userdict(file_name)` # file_name is a file-like object or the path of the custom dictionary

@@ -1,11 +1,11 @@
 from __future__ import absolute_import, unicode_literals
-import os
-import re
-import sys
-import jieba
+
 import pickle
-from .._compat import *
+import re
+
+import jieba
 from .viterbi import viterbi
+from .._compat import *
 
 PROB_START_P = "prob_start.p"
 PROB_TRANS_P = "prob_trans.p"
@@ -252,6 +252,7 @@ class POSTokenizer(object):
     def lcut(self, *args, **kwargs):
         return list(self.cut(*args, **kwargs))
 
+
 # default Tokenizer instance
 
 dt = POSTokenizer(jieba.dt)
@@ -269,13 +270,25 @@ def _lcut_internal_no_hmm(s):
     return dt._lcut_internal_no_hmm(s)
 
 
-def cut(sentence, HMM=True):
+def cut(sentence, HMM=True, use_paddle=False):
     """
     Global `cut` function that supports parallel processing.
 
     Note that this only works using dt, custom POSTokenizer
     instances are not supported.
     """
+    is_paddle_installed = check_paddle_install['is_paddle_installed']
+    if use_paddle and is_paddle_installed:
+        # if sentence is null, it will raise core exception in paddle.
+        if sentence is None or sentence == "" or sentence == u"":
+            return
+        import jieba.lac_small.predict as predict
+        sents, tags = predict.get_result(strdecode(sentence))
+        for i, sent in enumerate(sents):
+            if sent is None or tags[i] is None:
+                continue
+            yield pair(sent, tags[i])
+        return
     global dt
     if jieba.pool is None:
         for w in dt.cut(sentence, HMM=HMM):
@@ -291,5 +304,7 @@ def cut(sentence, HMM=True):
                 yield w
 
 
-def lcut(sentence, HMM=True):
+def lcut(sentence, HMM=True, use_paddle=False):
+    if use_paddle:
+        return list(cut(sentence, use_paddle=True))
     return list(cut(sentence, HMM))

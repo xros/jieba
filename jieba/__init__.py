@@ -1,19 +1,18 @@
 from __future__ import absolute_import, unicode_literals
-__version__ = '0.38'
+
+__version__ = '0.42.1'
 __license__ = 'MIT'
 
-import re
-import os
-import sys
-import time
-import logging
 import marshal
+import re
 import tempfile
 import threading
-from math import log
+import time
 from hashlib import md5
-from ._compat import *
+from math import log
+
 from . import finalseg
+from ._compat import *
 
 if os.name == 'nt':
     from shutil import move as _replace_file
@@ -40,14 +39,16 @@ re_eng = re.compile('[a-zA-Z0-9]', re.U)
 
 # \u4E00-\u9FD5a-zA-Z0-9+#&\._ : All non-space characters. Will be handled with re_han
 # \r\n|\s : whitespace characters. Will not be handled.
-re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._]+)", re.U)
+# re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._%]+)", re.U)
+# Adding "-" symbol in re_han_default
+re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._%\-]+)", re.U)
+
 re_skip_default = re.compile("(\r\n|\s)", re.U)
-re_han_cut_all = re.compile("([\u4E00-\u9FD5]+)", re.U)
-re_skip_cut_all = re.compile("[^a-zA-Z0-9+#\n]", re.U)
+
 
 def setLogLevel(log_level):
-    global logger
     default_logger.setLevel(log_level)
+
 
 class Tokenizer(object):
 
@@ -67,7 +68,8 @@ class Tokenizer(object):
     def __repr__(self):
         return '<Tokenizer dictionary=%r>' % self.dictionary
 
-    def gen_pfdict(self, f):
+    @staticmethod
+    def gen_pfdict(f):
         lfreq = {}
         ltotal = 0
         f_name = resolve_filename(f)
@@ -126,7 +128,7 @@ class Tokenizer(object):
 
             load_from_cache_fail = True
             if os.path.isfile(cache_file) and (abs_path == DEFAULT_DICT or
-                os.path.getmtime(cache_file) > os.path.getmtime(abs_path)):
+                                               os.path.getmtime(cache_file) > os.path.getmtime(abs_path)):
                 default_logger.debug(
                     "Loading model from cache %s" % cache_file)
                 try:
@@ -161,7 +163,7 @@ class Tokenizer(object):
             self.initialized = True
             default_logger.debug(
                 "Loading model cost %.3f seconds." % (time.time() - t1))
-            default_logger.debug("Prefix dict has been built succesfully.")
+            default_logger.debug("Prefix dict has been built successfully.")
 
     def check_initialized(self):
         if not self.initialized:
@@ -196,15 +198,30 @@ class Tokenizer(object):
     def __cut_all(self, sentence):
         dag = self.get_DAG(sentence)
         old_j = -1
+        eng_scan = 0
+        eng_buf = u''
         for k, L in iteritems(dag):
+            if eng_scan == 1 and not re_eng.match(sentence[k]):
+                eng_scan = 0
+                yield eng_buf
             if len(L) == 1 and k > old_j:
-                yield sentence[k:L[0] + 1]
+                word = sentence[k:L[0] + 1]
+                if re_eng.match(word):
+                    if eng_scan == 0:
+                        eng_scan = 1
+                        eng_buf = word
+                    else:
+                        eng_buf += word
+                if eng_scan == 0:
+                    yield word
                 old_j = L[0]
             else:
                 for j in L:
                     if j > k:
                         yield sentence[k:j + 1]
                         old_j = j
+        if eng_scan == 1:
+            yield eng_buf
 
     def __cut_DAG_NO_HMM(self, sentence):
         DAG = self.get_DAG(sentence)
@@ -269,24 +286,31 @@ class Tokenizer(object):
                 for elem in buf:
                     yield elem
 
-    def cut(self, sentence, cut_all=False, HMM=True):
-        '''
+    def cut(self, sentence, cut_all=False, HMM=True, use_paddle=False):
+        """
         The main function that segments an entire sentence that contains
-        Chinese characters into seperated words.
+        Chinese characters into separated words.
 
         Parameter:
             - sentence: The str(unicode) to be segmented.
             - cut_all: Model type. True for full pattern, False for accurate pattern.
             - HMM: Whether to use the Hidden Markov Model.
-        '''
+        """
+        is_paddle_installed = check_paddle_install['is_paddle_installed']
         sentence = strdecode(sentence)
-
-        if cut_all:
-            re_han = re_han_cut_all
-            re_skip = re_skip_cut_all
-        else:
-            re_han = re_han_default
-            re_skip = re_skip_default
+        if use_paddle and is_paddle_installed:
+            # if sentence is null, it will raise core exception in paddle.
+            if sentence is None or len(sentence) == 0:
+                return
+            import jieba.lac_small.predict as predict
+            results = predict.get_sent(sentence)
+            for sent in results:
+                if sent is None:
+                    continue
+                yield sent
+            return
+        re_han = re_han_default
+        re_skip = re_skip_default
         if cut_all:
             cut_block = self.__cut_all
         elif HMM:
@@ -400,7 +424,7 @@ class Tokenizer(object):
         """
         self.check_initialized()
         word = strdecode(word)
-        freq = int(freq) if freq else self.suggest_freq(word, False)
+        freq = int(freq) if freq is not None else self.suggest_freq(word, False)
         self.FREQ[word] = freq
         self.total += freq
         if tag:
@@ -409,6 +433,8 @@ class Tokenizer(object):
             wfrag = word[:ch + 1]
             if wfrag not in self.FREQ:
                 self.FREQ[wfrag] = 0
+        if freq == 0:
+            finalseg.add_force_split(word)
 
     def del_word(self, word):
         """
@@ -444,7 +470,7 @@ class Tokenizer(object):
                 freq *= self.FREQ.get(seg, 1) / ftotal
             freq = min(int(freq * self.total), self.FREQ.get(word, 0))
         if tune:
-            add_word(word, freq)
+            self.add_word(word, freq)
         return freq
 
     def tokenize(self, unicode_sentence, mode="default", HMM=True):
@@ -519,6 +545,10 @@ def _lcut_all(s):
 
 def _lcut(s):
     return dt._lcut(s)
+
+
+def _lcut_no_hmm(s):
+    return dt._lcut_no_hmm(s)
 
 
 def _lcut_all(s):
